@@ -59,6 +59,9 @@ export function deserialize(json: string): GameState {
   if (!Number.isInteger(wire.seed) || !Number.isInteger(wire.moveCount)) {
     throw new Error('bad numbers');
   }
+  if (typeof wire.score !== 'number' || !Number.isFinite(wire.score)) {
+    throw new Error('bad score');
+  }
 
   const seen = new Set<number>();
   const readCard = (value: unknown): Card => {
@@ -77,11 +80,50 @@ export function deserialize(json: string): GameState {
     foundations: wire.foundations.map((run) => {
       const cards = run.map(readCard);
       if (cards.length !== 13) throw new Error('bad foundation run');
+      cards.forEach((card, i) => {
+        // A foundation is by definition a face-up, same-suit K→A run.
+        if (!card.faceUp || card.suit !== cards[0].suit || card.rank !== 13 - i) {
+          throw new Error('bad foundation run');
+        }
+      });
       return cards;
     }),
     moveCount: wire.moveCount,
-    score: typeof wire.score === 'number' ? wire.score : 0,
+    score: wire.score,
   };
   if (seen.size !== DECK_SIZE) throw new Error(`expected ${DECK_SIZE} cards, saw ${seen.size}`);
+
+  // Semantic invariants the engine guarantees for every reachable state.
+  // Accepting states outside them lets corrupt saves break the rules later
+  // (partial deals, drops onto face-down cards, unwinnable buried runs).
+  if (state.stock.length % 10 !== 0) throw new Error('bad stock size');
+  if (state.stock.some((card) => card.faceUp)) throw new Error('face-up stock card');
+  for (const pile of state.columns) {
+    const top = pile[pile.length - 1];
+    if (top && !top.faceUp) throw new Error('face-down column top');
+    if (containsCompletedRun(pile)) throw new Error('unsettled completed run');
+  }
   return state;
+}
+
+/** Any contiguous face-up same-suit K→A run in the pile — always settled by the engine. */
+function containsCompletedRun(pile: Card[]): boolean {
+  let length = 0;
+  for (let i = 0; i < pile.length; i++) {
+    const card = pile[i];
+    const previous = pile[i - 1];
+    if (
+      length > 0 &&
+      card.faceUp &&
+      previous &&
+      card.suit === previous.suit &&
+      card.rank === previous.rank - 1
+    ) {
+      length++;
+    } else {
+      length = card.faceUp && card.rank === 13 ? 1 : 0;
+    }
+    if (length === 13) return true;
+  }
+  return false;
 }

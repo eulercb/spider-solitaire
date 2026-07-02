@@ -411,6 +411,81 @@ describe('serialize', () => {
   });
 });
 
+describe('hardening (adversarial review regressions)', () => {
+  it('rejects malformed or non-finite scores instead of coercing', () => {
+    const wire = JSON.parse(serialize(createGame(5, 1)));
+    for (const bad of ['cheat', null, undefined]) {
+      expect(() => deserialize(JSON.stringify({ ...wire, score: bad }))).toThrow();
+    }
+    expect(deserialize(JSON.stringify({ ...wire, score: -12 })).score).toBe(-12);
+  });
+
+  it('rejects stock sizes that are not a multiple of ten, and canDeal needs a full row', () => {
+    const wire = JSON.parse(serialize(createGame(5, 1)));
+    const tampered = { ...wire, columns: [...wire.columns] };
+    tampered.columns[0] = [...tampered.columns[0], ...tampered.stock.slice(0, 4)];
+    tampered.stock = wire.stock.slice(4);
+    expect(() => deserialize(JSON.stringify(tampered))).toThrow();
+
+    const short = makeState(
+      Array.from({ length: 10 }, (_, i) => [[0, i % 2 === 0 ? 1 : 3]] as Array<[Suit, number]>),
+      { suitCount: 1, stock: 4 },
+    );
+    expect(canDeal(short)).toEqual({ ok: false, reason: 'no-stock' });
+  });
+
+  it('never drops onto a face-down top card', () => {
+    const state = makeState([[[0, 8]], [[0, 9, 'down']]]);
+    // Hand-crafted (unreachable) state: the face-down 9 must not accept the 8.
+    expect(isLegalMove(state, { type: 'card', from: 0, index: 0, to: 1 })).toBe(false);
+  });
+
+  it('rejects face-down column tops, face-up stock, and junk foundations', () => {
+    const wire = JSON.parse(serialize(createGame(9, 1)));
+    const downTop = { ...wire, columns: [...wire.columns] };
+    downTop.columns[0] = [...downTop.columns[0]];
+    downTop.columns[0][downTop.columns[0].length - 1] &= ~1; // clear faceUp bit
+    expect(() => deserialize(JSON.stringify(downTop))).toThrow();
+
+    const upStock = { ...wire, stock: [...wire.stock] };
+    upStock.stock[0] |= 1;
+    expect(() => deserialize(JSON.stringify(upStock))).toThrow();
+
+    const junkFoundation = { ...wire, columns: [...wire.columns] };
+    junkFoundation.foundations = [wire.columns.flat().slice(0, 13)];
+    junkFoundation.columns = wire.columns.map(() => []);
+    junkFoundation.stock = [
+      ...wire.stock,
+      ...wire.columns.flat().slice(13).map((v: number) => v & ~1),
+    ];
+    expect(() => deserialize(JSON.stringify(junkFoundation))).toThrow();
+  });
+
+  it('rejects an unsettled completed run hidden in a column', () => {
+    // K→A spades face-up with a stray heart on top — engine would have settled it.
+    const state = makeState([
+      [
+        ...Array.from({ length: 13 }, (_, i) => [0, 13 - i] as [Suit, number]),
+        [1, 5],
+      ],
+    ]);
+    expect(() => deserialize(serialize(state))).toThrow();
+  });
+
+  it('treats fractional and NaN grab indices as illegal, not as crashes', () => {
+    const state = createGame(11, 1);
+    expect(canGrab(state, 0, 0.5)).toBe(false);
+    expect(canGrab(state, 0, Number.NaN)).toBe(false);
+    expect(isLegalMove(state, { type: 'card', from: 0, index: 0.5, to: 1 })).toBe(false);
+  });
+
+  it('normalizes non-integer seeds so engine states always round-trip', () => {
+    const fractional = createGame(1.5, 1);
+    expect(fractional.seed).toBe(1);
+    expect(serialize(deserialize(serialize(fractional)))).toBe(serialize(fractional));
+  });
+});
+
 describe('full game sanity', () => {
   it('plays 300 random legal moves without invariant violations', () => {
     const rand = mulberry32(7);

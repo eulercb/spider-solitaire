@@ -11,6 +11,8 @@ const TABLEAU_CARDS = 54;
  * each column is face-up. The remaining 50 cards form the stock.
  */
 export function createGame(seed: number, suitCount: SuitCount): GameState {
+  // Normalize exactly like the PRNG will, so the stored seed round-trips.
+  seed = seed >>> 0;
   const deck = shuffle(buildDeck(suitCount), seed);
   const columns: GameState['columns'] = Array.from({ length: COLUMN_COUNT }, () => []);
   for (let i = 0; i < TABLEAU_CARDS; i++) {

@@ -13,7 +13,7 @@ import { removeCompletedRun } from './sequences';
 /** True when cards `index…end` of a column form a movable (same-suit descending, all face-up) run. */
 export function canGrab(state: GameState, column: number, index: number): boolean {
   const pile = state.columns[column];
-  if (!pile || index < 0 || index >= pile.length) return false;
+  if (!pile || !Number.isInteger(index) || index < 0 || index >= pile.length) return false;
   for (let i = index; i < pile.length; i++) {
     const card = pile[i];
     if (!card.faceUp) return false;
@@ -39,12 +39,13 @@ export function movableRunLength(pile: Card[]): number {
   return pile[pile.length - 1].faceUp ? length : 0;
 }
 
-/** Loose placement: empty column, or top card exactly one rank higher (any suit). */
+/** Loose placement: empty column, or a face-up top card exactly one rank higher (any suit). */
 export function canDrop(state: GameState, movingCard: Card, to: number): boolean {
   const pile = state.columns[to];
   if (!pile) return false;
   if (pile.length === 0) return true;
-  return pile[pile.length - 1].rank === movingCard.rank + 1;
+  const top = pile[pile.length - 1];
+  return top.faceUp && top.rank === movingCard.rank + 1;
 }
 
 export function isLegalMove(state: GameState, move: Move): boolean {
@@ -68,7 +69,8 @@ export function legalDestinations(state: GameState, from: number, index: number)
 export type DealBlock = 'no-stock' | 'empty-column';
 
 export function canDeal(state: GameState): { ok: boolean; reason?: DealBlock } {
-  if (state.stock.length === 0) return { ok: false, reason: 'no-stock' };
+  // A deal is always exactly one card onto every column.
+  if (state.stock.length < COLUMN_COUNT) return { ok: false, reason: 'no-stock' };
   if (state.columns.some((pile) => pile.length === 0)) {
     return { ok: false, reason: 'empty-column' };
   }

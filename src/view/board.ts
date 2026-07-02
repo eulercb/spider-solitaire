@@ -28,11 +28,16 @@ export class BoardView {
   places = new Map<number, CardPlace>();
   /** Cards whose DOM transform was touched outside a render (drag). */
   dirty = new Set<number>();
+  /** Cards currently pinned under the player's finger — renders must not move them. */
+  held = new Set<number>();
 
   constructor(els: BoardElements) {
     this.els = els;
     this.layer = document.createElement('div');
     this.layer.id = 'cards';
+    // The card layer is pointer-driven scenery; game state reaches assistive
+    // tech through the HUD meters, plate counts, and toast live region.
+    this.layer.setAttribute('aria-hidden', 'true');
     els.app.appendChild(this.layer);
     for (let i = 0; i < COLUMN_COUNT; i++) {
       const slot = document.createElement('div');
@@ -119,7 +124,7 @@ export class BoardView {
       const node = this.nodes.get(id);
       const inner = this.inners.get(id);
       if (!node || !inner) continue;
-      gsap.set(node, { x: place.x, y: place.y, scale: 1 });
+      gsap.set(node, { x: place.x, y: place.y, scale: 1, rotation: 0 });
       node.style.zIndex = String(place.z);
       gsap.set(inner, { rotationY: place.faceUp ? 0 : 180 });
     }

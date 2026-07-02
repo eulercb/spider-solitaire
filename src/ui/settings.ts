@@ -59,7 +59,9 @@ function toggle(key: keyof Settings, label: string, handlers: SettingsHandlers):
   button.type = 'button';
   button.className = 'switch';
   button.setAttribute('role', 'switch');
-  button.setAttribute('aria-label', label);
+  // Real association: tapping the row's text flips the switch too.
+  button.id = `switch-${String(key)}`;
+  labelEl.htmlFor = button.id;
   const paint = (): void => {
     const on = handlers.current()[key] === true;
     button.setAttribute('aria-checked', String(on));

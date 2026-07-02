@@ -83,12 +83,14 @@ export class SaveManager {
   }
 
   saveGame(state: GameState, history: History, elapsedMs: number, counted: boolean): void {
+    // Undo stays unlimited in memory; only the persisted tail is bounded so
+    // a marathon session can never brush against the localStorage quota.
     this.storage.set(
       SAVE_KEY,
       JSON.stringify({
         state: serialize(state),
-        past: history.past,
-        future: history.future,
+        past: history.past.slice(-400),
+        future: history.future.slice(-400),
         elapsedMs: Math.floor(elapsedMs),
         counted,
       }),

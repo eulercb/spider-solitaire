@@ -64,6 +64,8 @@ export class PointerInput {
 
   private onDown = (event: PointerEvent): void => {
     if (!this.enabled || this.pointerId !== null) return;
+    // One primary pointer only: ignore second fingers and mouse side buttons.
+    if (!event.isPrimary || event.button > 0) return;
     const target = event.target as HTMLElement;
     if (target.closest('button, dialog, a, input, select, label')) return;
     const cardEl = target.closest<HTMLElement>('.card');
@@ -123,6 +125,7 @@ export class PointerInput {
 
     if (wasDrag) {
       this.dragging = false;
+      this.board.held.clear();
       this.board.setColumnHighlights([], null);
       this.settleTilt();
       const to = this.dropColumn();
@@ -156,6 +159,7 @@ export class PointerInput {
     this.origin = null;
     if (this.dragging) {
       this.dragging = false;
+      this.board.held.clear();
       this.board.setColumnHighlights([], null);
       this.settleTilt();
       this.callbacks.invalid([]);
@@ -171,9 +175,25 @@ export class PointerInput {
       const node = this.board.node(id);
       gsap.killTweensOf(node);
       this.board.dirty.add(id);
+      this.board.held.add(id);
       node.classList.add('lifted');
       node.style.zIndex = String(900 + this.runIds.indexOf(id));
     }
+  }
+
+  /**
+   * Something other than this drag changed the table (undo, stock deal via a
+   * second finger, auto-finish…): release the run so the render can place it
+   * truthfully. Called by the renderer before it reconciles.
+   */
+  cancelActiveDrag(): void {
+    if (!this.dragging) return;
+    this.dragging = false;
+    this.pointerId = null;
+    this.origin = null;
+    this.board.held.clear();
+    this.board.setColumnHighlights([], null);
+    this.settleTilt();
   }
 
   /** The stack rides one card-height above the finger so the thumb never hides it. */

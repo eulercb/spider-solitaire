@@ -8,6 +8,7 @@ import {
   findAutoFinish,
   findHint,
   isDeadlocked,
+  isLegalMove,
   isWon,
   legalDestinations,
   randomSeed,
@@ -81,15 +82,20 @@ export class GameController {
   startTicking(onTick: () => void): void {
     this.lastTick = performance.now();
     this.tickHandle = window.setInterval(() => {
+      const now = performance.now();
       if (document.hidden || this.finished) {
-        this.lastTick = performance.now();
+        this.lastTick = now;
         return;
       }
-      const now = performance.now();
-      this.elapsedMs += now - this.lastTick;
+      // Background tabs throttle or suspend intervals entirely; clamping the
+      // delta means time away from the table is never billed to the player.
+      this.elapsedMs += Math.min(now - this.lastTick, 2000);
       this.lastTick = now;
       onTick();
     }, 1000);
+    document.addEventListener('visibilitychange', () => {
+      this.lastTick = performance.now();
+    });
   }
 
   stopTicking(): void {
@@ -139,7 +145,8 @@ export class GameController {
   }
 
   grabRun(column: number, index: number): number[] | null {
-    if (this.finished || !canGrab(this.state, column, index)) return null;
+    if (this.finished || this.autoFinishRunning) return null;
+    if (!canGrab(this.state, column, index)) return null;
     return this.state.columns[column].slice(index).map((card) => card.id);
   }
 
@@ -149,7 +156,7 @@ export class GameController {
   }
 
   moveCard(from: number, index: number, to: number, cause: RenderCause = 'move'): boolean {
-    if (this.finished) return false;
+    if (this.finished || this.autoFinishRunning) return false;
     const move: Move = { type: 'card', from, index, to };
     const ids = this.grabRun(from, index);
     if (!ids || !this.legalDestinations(from, index).includes(to)) {
@@ -161,7 +168,7 @@ export class GameController {
   }
 
   tapMove(column: number, index: number): void {
-    if (this.finished) return;
+    if (this.finished || this.autoFinishRunning) return;
     const ids = this.grabRun(column, index);
     if (!ids) {
       this.events.invalid([]);
@@ -176,7 +183,7 @@ export class GameController {
   }
 
   deal(): void {
-    if (this.finished) return;
+    if (this.finished || this.autoFinishRunning) return;
     const gate = canDeal(this.state);
     if (!gate.ok) {
       this.events.message(
@@ -235,7 +242,8 @@ export class GameController {
     this.autoFinishRunning = true;
     const step = (moves: Move[]): void => {
       const move = moves.shift();
-      if (!move || this.finished) {
+      // Belt and braces: never commit a stale line into a changed board.
+      if (!move || this.finished || !isLegalMove(this.state, move)) {
         this.autoFinishRunning = false;
         return;
       }
@@ -249,11 +257,33 @@ export class GameController {
     return this.autoFinishLine !== null && !this.autoFinishRunning;
   }
 
+  /**
+   * Pop snapshots until one parses. Restored saves can carry a corrupt
+   * history entry; a bad snapshot is dropped and the next older one used
+   * instead of crashing the undo button.
+   */
+  private popValid(direction: 'undo' | 'redo'): GameState | null {
+    for (;;) {
+      const snapshot =
+        direction === 'undo'
+          ? this.history.undo(serialize(this.state))
+          : this.history.redo(serialize(this.state));
+      if (snapshot === null) return null;
+      try {
+        return deserialize(snapshot);
+      } catch {
+        // Drop the just-pushed current-state entry and the bad snapshot.
+        if (direction === 'undo') this.history.future.pop();
+        else this.history.past.pop();
+      }
+    }
+  }
+
   undo(): void {
     if (this.finished || this.autoFinishRunning) return;
-    const previous = this.history.undo(serialize(this.state));
+    const previous = this.popValid('undo');
     if (previous === null) return;
-    this.state = deserialize(previous);
+    this.state = previous;
     this.autoFinishLine = findAutoFinish(this.state);
     this.persist();
     this.events.render(this.state, [], 'undo');
@@ -262,11 +292,14 @@ export class GameController {
 
   undoAll(): void {
     if (this.finished || this.autoFinishRunning) return;
-    let previous = this.history.undo(serialize(this.state));
-    while (previous !== null) {
-      this.state = deserialize(previous);
-      previous = this.history.undo(serialize(this.state));
+    let restored: GameState | null = null;
+    for (;;) {
+      const previous = this.popValid('undo');
+      if (previous === null) break;
+      this.state = previous;
+      restored = previous;
     }
+    if (restored === null) return;
     this.autoFinishLine = findAutoFinish(this.state);
     this.persist();
     this.events.render(this.state, [], 'undo');
@@ -275,9 +308,9 @@ export class GameController {
 
   redo(): void {
     if (this.finished || this.autoFinishRunning) return;
-    const next = this.history.redo(serialize(this.state));
+    const next = this.popValid('redo');
     if (next === null) return;
-    this.state = deserialize(next);
+    this.state = next;
     this.autoFinishLine = findAutoFinish(this.state);
     this.persist();
     this.events.render(this.state, [], 'redo');

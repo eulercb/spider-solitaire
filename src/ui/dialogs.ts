@@ -4,17 +4,24 @@ import { formatTime } from './toolbar';
 let toastEl: HTMLElement | null = null;
 let toastTimer = 0;
 
+/**
+ * The live region must exist before the first message, or screen readers
+ * miss the initial announcement. Called once at boot.
+ */
+export function initToast(): void {
+  if (toastEl) return;
+  toastEl = document.createElement('div');
+  toastEl.id = 'toast';
+  toastEl.setAttribute('role', 'status');
+  toastEl.setAttribute('aria-live', 'polite');
+  document.body.appendChild(toastEl);
+}
+
 /** Transient guidance, one line at a time, announced politely. */
 export function toast(text: string): void {
-  if (!toastEl) {
-    toastEl = document.createElement('div');
-    toastEl.id = 'toast';
-    toastEl.setAttribute('role', 'status');
-    toastEl.setAttribute('aria-live', 'polite');
-    document.body.appendChild(toastEl);
-  }
-  toastEl.textContent = text;
-  toastEl.classList.add('show');
+  initToast();
+  toastEl!.textContent = text;
+  toastEl!.classList.add('show');
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toastEl?.classList.remove('show'), 2600);
 }

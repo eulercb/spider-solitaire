@@ -62,6 +62,16 @@ The cascade renders with `clearBeforeRender: false` plus a full-screen
 transparency. That gives the classic phosphor-trail cascade over the live
 DOM table without compositing a second copy of the board into the canvas.
 
+## Keyboard play stops at the chrome
+
+Toolbar, menus, dialogs, and settings are fully keyboard-operable with
+visible focus (the brief's stated floor: "basic keyboard operability of
+menus"). The cards themselves are pointer-only and the card layer is marked
+`aria-hidden`; game state reaches assistive tech through the HUD meters,
+plate counts, and the toast live region. Full keyboard/screen-reader card
+play is a real feature with real interaction design (cursor model,
+announcements per move) — better absent than half-done.
+
 ## Seeds normalize with `>>> 0`
 
 mulberry32 truncates seeds to uint32 internally, so `createGame` stores the

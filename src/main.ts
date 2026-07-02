@@ -2,7 +2,13 @@ import '@fontsource-variable/fraunces';
 import '@fontsource-variable/inter';
 import './styles/main.css';
 import { registerSW } from 'virtual:pwa-register';
-import { cardFromId, type GameEvent, type GameState, type SuitCount } from './engine';
+import {
+  cardFromId,
+  isDeadlocked,
+  type GameEvent,
+  type GameState,
+  type SuitCount,
+} from './engine';
 import { GameController } from './game/controller';
 import { SaveManager } from './game/persistence';
 import type { Settings } from './game/settings';
@@ -16,6 +22,7 @@ import {
   confirmDialog,
   deadlockDialog,
   howToSheet,
+  initToast,
   menuSheet,
   toast,
   winDialog,
@@ -72,7 +79,12 @@ function status(): void {
   });
 }
 
+let inputRef: PointerInput | null = null;
+
 function render(state: GameState, events: GameEvent[], cause: RenderCause): void {
+  // A render mid-drag always means the table changed under the player's
+  // finger (undo, second-finger deal, auto-finish) — release the run first.
+  inputRef?.cancelActiveDrag();
   if (cause === 'new-game' || cause === 'restore') {
     board.refreshMetrics();
     board.build(state, settings);
@@ -156,7 +168,7 @@ controller = new GameController(
   settings.suitCount,
 );
 
-const input = new PointerInput(board, settings, {
+const input: PointerInput = new PointerInput(board, settings, {
   locate: (id) => controller.locate(id),
   grabRun: (column, index) => controller.grabRun(column, index),
   legalDestinations: (column, index) => controller.legalDestinations(column, index),
@@ -169,6 +181,7 @@ const input = new PointerInput(board, settings, {
     animator.render(controller.state, [], 'auto');
   },
 });
+inputRef = input;
 
 async function requestNewGame(suitCount: SuitCount, skipConfirm = false): Promise<void> {
   const underway =
@@ -265,11 +278,25 @@ function openSettings(): void {
 // --- Boot ---------------------------------------------------------------
 
 suppressBrowserGestures(appEl);
+initToast();
 appEl.addEventListener('pointerdown', () => sound.unlock(), { passive: true });
 
 render(controller.state, [], controller.resumedFromSave ? 'restore' : 'new-game');
 status();
-if (controller.resumedFromSave) toast('Welcome back — your game was kept warm.');
+if (controller.resumedFromSave) {
+  toast('Welcome back — picking up where you left off.');
+  // A game saved at a dead end should greet the player with its options.
+  if (!controller.finished && isDeadlocked(controller.state)) {
+    window.setTimeout(
+      () =>
+        deadlockDialog(
+          () => controller.undo(),
+          () => void requestNewGame(settings.suitCount, true),
+        ),
+      700,
+    );
+  }
+}
 controller.startTicking(status);
 
 let resizeTimer = 0;
@@ -291,7 +318,14 @@ window.addEventListener('pagehide', () => controller.persist());
 registerSW({ immediate: true });
 
 // Debug hooks for smoke tests and cascade tuning (opt-in only).
-if (localStorage.getItem('baize.debug')) {
+const debugFlag = ((): boolean => {
+  try {
+    return localStorage.getItem('baize.debug') !== null;
+  } catch {
+    return false; // storage-blocked contexts must still boot the game
+  }
+})();
+if (debugFlag) {
   const nearWin = (): void => {
     const suits = 1 as const;
     const foundations = Array.from({ length: 7 }, (_, f) =>
@@ -319,6 +353,7 @@ if (localStorage.getItem('baize.debug')) {
   };
   (window as unknown as Record<string, unknown>).__baize = {
     controller,
+    board,
     nearWin,
     finish: () => controller.moveCard(1, 0, 0),
   };

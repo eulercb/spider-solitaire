@@ -55,7 +55,7 @@ export function buildChrome(
       <span class="wordmark">Baize</span>
       <span class="chip" data-role="suits"></span>
     </div>
-    <div class="meters" role="status" aria-label="Game progress">
+    <div class="meters" aria-label="Game progress">
       <span class="meter" data-role="score"><small>score</small><b>—</b></span>
       <span class="meter" data-role="time"><small>time</small><b>—</b></span>
       <span class="meter" data-role="moves"><small>moves</small><b>0</b></span>
@@ -119,7 +119,7 @@ export function buildChrome(
       q('[data-role="foundations"]').textContent = `${view.foundations} of 8`;
       q('[data-role="stock"]').textContent =
         view.stockDeals === 0
-          ? 'stock spent'
+          ? 'spent'
           : view.stockDeals === 1
             ? '1 deal'
             : `${view.stockDeals} deals`;

@@ -35,6 +35,8 @@ export class Animator {
   private board: BoardView;
   private settings: Settings;
   private timeline: gsap.core.Timeline | null = null;
+  /** Cards currently wearing the sequence-clear flourish. */
+  private gilded = new Set<number>();
   onSound: (name: SoundName) => void = () => {};
 
   constructor(board: BoardView, settings: Settings) {
@@ -55,8 +57,13 @@ export class Animator {
   render(state: GameState, events: GameEvent[], cause: RenderCause): void {
     const board = this.board;
     const places = board.computePlaces(state);
+    // Killing the previous timeline never fires its onCompletes, so nothing
+    // below may depend on them: the catch-all pass reconciles against the
+    // DOM's *actual* transforms and heals whatever the kill left behind.
     this.timeline?.kill();
     this.timeline = null;
+    for (const id of this.gilded) board.node(id).classList.remove('gilded');
+    this.gilded.clear();
 
     const factor = this.factor();
     if (factor === 0 || cause === 'restore') {
@@ -69,31 +76,45 @@ export class Animator {
     this.timeline = tl;
     const staged = new Set<number>();
 
+    // Cards that move *and* complete a sequence in the same turn must first
+    // land on the column, then sweep to the foundation — their final places
+    // point at the foundation, so synthesize the intermediate column spot.
+    const between = this.intermediatePlaces(state, events);
+
     if (cause === 'new-game') {
       this.stageOpeningDeal(tl, state, places, staged, factor);
     }
 
     for (const event of events) {
-      if (event.kind === 'dealt') this.stageStockDeal(tl, event.ids, places, staged, factor);
-      if (event.kind === 'moved') this.stageMove(tl, event.ids, places, staged, factor);
+      if (event.kind === 'dealt') {
+        this.stageStockDeal(tl, event.ids, places, between, staged, factor);
+      }
+      if (event.kind === 'moved') {
+        this.stageMove(tl, event.ids, places, between, staged, factor);
+      }
       if (event.kind === 'completed') this.stageCompleted(tl, event.ids, places, staged, factor);
       if (event.kind === 'flipped') this.stageFlip(tl, event.id, places, staged, factor);
     }
 
-    // Catch-all reconcile: anything not choreographed (fan compression,
-    // undo/redo, interrupted drags) glides to its resting place.
+    // Catch-all reconcile against the real DOM: fan compression, undo/redo,
+    // interrupted drags and killed tweens all glide home from wherever the
+    // previous frame actually left them.
     const glide = 0.22 * factor;
     for (const [id, place] of places) {
       if (staged.has(id)) continue;
-      const previous = board.places.get(id);
+      if (board.held.has(id)) continue; // never yank cards out of the player's hand
+      const node = board.node(id);
+      const inner = board.inner(id);
       const moved =
-        !previous ||
-        previous.x !== place.x ||
-        previous.y !== place.y ||
+        Math.abs(Number(gsap.getProperty(node, 'x')) - place.x) > 0.5 ||
+        Math.abs(Number(gsap.getProperty(node, 'y')) - place.y) > 0.5 ||
+        Math.abs(Number(gsap.getProperty(node, 'rotation'))) > 0.2 ||
+        Math.abs(Number(gsap.getProperty(node, 'scale')) - 1) > 0.02 ||
         board.dirty.has(id);
-      const flipped = !previous || previous.faceUp !== place.faceUp;
+      const targetY = place.faceUp ? 0 : 180;
+      const currentY = ((Number(gsap.getProperty(inner, 'rotationY')) % 360) + 360) % 360;
+      const flipped = Math.abs(currentY - targetY) > 1;
       if (moved) {
-        const node = board.node(id);
         node.style.zIndex = String(300 + place.z);
         tl.to(
           node,
@@ -101,6 +122,7 @@ export class Animator {
             x: place.x,
             y: place.y,
             scale: 1,
+            rotation: 0,
             duration: glide,
             ease: 'power2.out',
             onComplete: () => {
@@ -110,12 +132,12 @@ export class Animator {
           0,
         );
       } else {
-        board.node(id).style.zIndex = String(place.z);
+        node.style.zIndex = String(place.z);
       }
       if (flipped) {
         tl.to(
-          board.inner(id),
-          { rotationY: place.faceUp ? 0 : 180, duration: 0.3 * factor, ease: 'power2.inOut' },
+          inner,
+          { rotationY: targetY, duration: 0.3 * factor, ease: 'power2.inOut' },
           0,
         );
       }
@@ -124,6 +146,35 @@ export class Animator {
 
     board.places = places;
     board.dirty.clear();
+  }
+
+  /**
+   * Pre-removal column positions for cards that a 'completed' event lifts to
+   * the foundation this same render: fanned below whatever remains in the
+   * column they completed on.
+   */
+  private intermediatePlaces(
+    state: GameState,
+    events: GameEvent[],
+  ): Map<number, { x: number; y: number }> {
+    const between = new Map<number, { x: number; y: number }>();
+    const { metrics } = this.board;
+    for (const event of events) {
+      if (event.kind !== 'completed') continue;
+      const pile = state.columns[event.column];
+      const remaining = pile.length;
+      const downCount = pile.filter((card) => !card.faceUp).length;
+      let y =
+        metrics.boardTop +
+        downCount * metrics.fanDown +
+        Math.max(0, remaining - downCount) * metrics.fanUp;
+      const x = metrics.columnX[event.column];
+      for (const id of event.ids) {
+        between.set(id, { x, y });
+        y += metrics.fanUp;
+      }
+    }
+    return between;
   }
 
   /** Cards fly off the banked stock in deal order, flipping as they land. */
@@ -193,6 +244,7 @@ export class Animator {
     tl: gsap.core.Timeline,
     ids: number[],
     places: Map<number, CardPlace>,
+    between: Map<number, { x: number; y: number }>,
     staged: Set<number>,
     factor: number,
   ): void {
@@ -201,18 +253,21 @@ export class Animator {
     ids.forEach((id, i) => {
       staged.add(id);
       const place = places.get(id)!;
+      const target = between.get(id) ?? place;
       const node = board.node(id);
       const at = i * 0.045 * factor;
       node.style.zIndex = String(400 + i);
-      tl.to(node, { x: place.x, y: place.y, duration: 0.36 * factor, ease: 'power2.out' }, at);
+      tl.to(node, { x: target.x, y: target.y, duration: 0.36 * factor, ease: 'power2.out' }, at);
       tl.to(
         board.inner(id),
         { rotationY: 0, duration: 0.26 * factor, ease: 'power2.inOut' },
         at + 0.16 * factor,
       );
-      tl.add(() => {
-        node.style.zIndex = String(place.z);
-      }, at + 0.4 * factor);
+      if (!between.has(id)) {
+        tl.add(() => {
+          node.style.zIndex = String(place.z);
+        }, at + 0.4 * factor);
+      }
     });
   }
 
@@ -221,6 +276,7 @@ export class Animator {
     tl: gsap.core.Timeline,
     ids: number[],
     places: Map<number, CardPlace>,
+    between: Map<number, { x: number; y: number }>,
     staged: Set<number>,
     factor: number,
   ): void {
@@ -229,18 +285,20 @@ export class Animator {
     ids.forEach((id, i) => {
       staged.add(id);
       const place = places.get(id)!;
+      const target = between.get(id) ?? place;
       const node = board.node(id);
       node.style.zIndex = String(300 + place.z);
       tl.to(
         node,
         {
-          x: place.x,
-          y: place.y,
+          x: target.x,
+          y: target.y,
           scale: 1,
+          rotation: 0,
           duration: 0.3 * factor,
           ease: 'back.out(1.15)',
           onComplete: () => {
-            node.style.zIndex = String(place.z);
+            if (!between.has(id)) node.style.zIndex = String(place.z);
           },
         },
         i * 0.016 * factor,
@@ -265,6 +323,7 @@ export class Animator {
       const node = board.node(id);
       tl.add(() => {
         node.classList.add('gilded');
+        this.gilded.add(id);
         node.style.zIndex = String(600 + i);
       }, start);
       tl.to(node, { scale: 1.06, duration: 0.16 * factor, ease: 'power1.out' }, start);
@@ -281,6 +340,7 @@ export class Animator {
       );
       tl.add(() => {
         node.classList.remove('gilded');
+        this.gilded.delete(id);
         node.style.zIndex = String(place.z);
       }, start + 0.7 * factor + (ids.length - 1 - i) * 0.03 * factor);
     });

@@ -80,6 +80,27 @@ try {
   await page.locator('dialog.settings .sheet-head button').tap();
   await page.waitForTimeout(300);
 
+  // Interruption safety: kick off a stock deal and interrupt it mid-flight
+  // with another action; every card must still converge to its model place.
+  await page.evaluate(() => window.__baize.controller.deal());
+  await page.waitForTimeout(120); // cards are mid-air now
+  await page.evaluate(() => {
+    const { controller } = window.__baize;
+    controller.undo(); // interrupts the deal animation with a full re-render
+  });
+  await page.waitForTimeout(900);
+  const stranded = await page.evaluate(() => {
+    const { board } = window.__baize;
+    let bad = 0;
+    for (const [id, place] of board.places) {
+      const node = board.node(id);
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+      if (Math.abs(matrix.e - place.x) > 1 || Math.abs(matrix.f - place.y) > 1) bad++;
+    }
+    return bad;
+  });
+  check(stranded === 0, `no cards stranded after interrupting a deal (${stranded})`);
+
   // Autosave/resume: reload mid-game and the same position comes back.
   const beforeReload = await page.evaluate(() => ({
     moves: window.__baize.controller.state.moveCount,
@@ -111,6 +132,18 @@ try {
   );
   check(fatal.length === 0, `no console/page errors (${fatal.length})`);
   if (fatal.length) console.log(fatal.join('\n'));
+
+  // True-offline proof: wait for the service worker, cut the network, reload.
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForTimeout(1200); // let precache finish
+  await context.setOffline(true);
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(1500);
+  check(
+    (await page.locator('.card').count()) === 104,
+    'game loads fully offline via the service worker',
+  );
+  await context.setOffline(false);
 
   await browser.close();
 } catch (error) {

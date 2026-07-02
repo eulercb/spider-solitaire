@@ -143,11 +143,17 @@ export function placeCards(state: GameState, metrics: Metrics): Map<number, Card
     });
   });
 
-  // Stock: one visual pile per remaining ten-card deal, nudged like a banked stack.
+  // Banked stacks nudge toward the middle of the table so they never creep
+  // off-screen, whichever side the plate sits on (left-handed swaps them).
+  const tableMid =
+    (metrics.columnX[0] + metrics.columnX[COLUMN_COUNT - 1] + metrics.cardW) / 2;
+
+  // Stock: one visual pile per remaining ten-card deal.
+  const stockDir = metrics.stock.x > tableMid ? -1 : 1;
   state.stock.forEach((card, i) => {
     const group = Math.floor(i / COLUMN_COUNT);
     places.set(card.id, {
-      x: metrics.stock.x - group * 5,
+      x: metrics.stock.x + stockDir * group * 5,
       y: metrics.stock.y,
       z: 1 + i,
       faceUp: false,
@@ -156,10 +162,11 @@ export function placeCards(state: GameState, metrics: Metrics): Map<number, Card
   });
 
   // Foundations: completed runs rest as one banked pile, latest on top.
+  const foundationDir = metrics.foundation.x > tableMid ? -1 : 1;
   state.foundations.forEach((run, f) => {
     run.forEach((card, i) => {
       places.set(card.id, {
-        x: metrics.foundation.x + f * 4,
+        x: metrics.foundation.x + foundationDir * f * 4,
         y: metrics.foundation.y,
         z: 1 + f * 14 + i,
         faceUp: true,

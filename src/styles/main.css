@@ -186,8 +186,13 @@ body {
   height: var(--card-h);
   pointer-events: auto;
   touch-action: none;
-  will-change: transform;
   perspective: 600px;
+}
+
+/* Promote only the cards in hand — 104 permanent compositor layers would
+   tax low-end Android GPUs for no benefit. */
+.card.lifted {
+  will-change: transform;
 }
 
 .card-inner {
@@ -232,21 +237,24 @@ body {
     0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
-.card.hinted .face {
+/* The pulse animates opacity on an overlay (compositor-only) rather than
+   re-painting box-shadow on every card of a hinted run. */
+.card.hinted::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: calc(var(--card-w) * 0.09);
+  box-shadow:
+    0 0 0 2.5px var(--accent),
+    0 0 18px var(--accent-soft);
+  opacity: 0;
+  pointer-events: none;
   animation: hint-pulse 0.8s ease-in-out 2;
 }
 
 @keyframes hint-pulse {
-  0%,
-  100% {
-    box-shadow:
-      0 1px 1.5px rgba(0, 0, 0, 0.3),
-      0 2px 5px rgba(0, 0, 0, 0.18);
-  }
   50% {
-    box-shadow:
-      0 0 0 2.5px var(--accent),
-      0 0 18px var(--accent-soft);
+    opacity: 1;
   }
 }
 
@@ -359,12 +367,21 @@ body {
   padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
 }
 
-.left-handed #chrome {
-  direction: rtl;
+/* Left-handed table: swap the plates without RTL (which would bidi-scramble
+   the "5 deals" / "0 of 8" labels). */
+.left-handed .foundation-plate {
+  grid-column: 3;
+  grid-row: 1;
 }
 
-.left-handed #chrome #toolbar {
-  direction: ltr;
+.left-handed #toolbar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.left-handed .stock-plate {
+  grid-column: 1;
+  grid-row: 1;
 }
 
 #toolbar {
@@ -432,7 +449,7 @@ button:disabled {
   bottom: -15px;
   transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -489,7 +506,8 @@ button:disabled {
 #toast {
   position: fixed;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom) + 92px);
+  /* Sits clear of the footer AND the floating Finish pill. */
+  bottom: calc(env(safe-area-inset-bottom) + 148px);
   transform: translate(-50%, 12px);
   z-index: 700;
   max-width: min(86vw, 420px);

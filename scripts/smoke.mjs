@@ -80,6 +80,22 @@ try {
   await page.locator('dialog.settings .sheet-head button').tap();
   await page.waitForTimeout(300);
 
+  // Autosave/resume: reload mid-game and the same position comes back.
+  const beforeReload = await page.evaluate(() => ({
+    moves: window.__baize.controller.state.moveCount,
+    seed: window.__baize.controller.state.seed,
+  }));
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(900);
+  const afterReload = await page.evaluate(() => ({
+    moves: window.__baize.controller.state.moveCount,
+    seed: window.__baize.controller.state.seed,
+  }));
+  check(
+    afterReload.moves === beforeReload.moves && afterReload.seed === beforeReload.seed,
+    `game resumes after reload (moves=${afterReload.moves})`,
+  );
+
   // Win path: near-win state, finishing move, cascade canvas appears.
   await page.evaluate(() => window.__baize.nearWin());
   await page.waitForTimeout(400);

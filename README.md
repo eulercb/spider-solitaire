@@ -3,8 +3,8 @@
 A refined night-time card parlor in your pocket. Spider Solitaire as an
 installable, fully-offline PWA for Android/Chrome, hosted on GitHub Pages.
 
-**Play:** `https://<user>.github.io/spider-solitaire/` (deploys from `main`
-via GitHub Actions — enable Pages → Source: *GitHub Actions* once).
+**Play:** [`https://spider.zen.dev.br/`](https://spider.zen.dev.br/) (deploys
+from `main` via GitHub Actions — enable Pages → Source: *GitHub Actions* once).
 
 ## What's inside
 
@@ -47,10 +47,24 @@ never desync the game. See `DECISIONS.md` for deliberate deviations.
 ## Deployment
 
 `.github/workflows/deploy.yml` tests, builds, and publishes `dist/` to
-GitHub Pages on every push to `main`. Vite's `base` is `/spider-solitaire/`;
-the manifest uses relative `start_url`/`scope`, and the service worker
+GitHub Pages on every push to `main`. The site is served from the custom
+domain **`spider.zen.dev.br`**, so Vite's `base` is `/` (root) and
+`public/CNAME` ships the domain in every build artifact — required for
+Actions-based Pages, otherwise a deploy can drop the custom domain. The
+manifest uses relative `start_url`/`scope`, and the service worker
 (`vite-plugin-pwa`, `autoUpdate`) precaches the entire shell — fonts, card
 art, and the Pixi chunk — for true offline play.
+
+### Custom domain, one-time setup
+
+The code is ready; two steps happen outside the repo:
+
+1. **DNS** — at the `zen.dev.br` DNS provider, add a `CNAME` record:
+   `spider` → `eulercb.github.io.` (subdomain, so a CNAME record; an apex
+   domain would instead need GitHub's A/AAAA records).
+2. **GitHub** — repo *Settings → Pages → Custom domain*, enter
+   `spider.zen.dev.br`, save, wait for the DNS check to pass, then tick
+   **Enforce HTTPS**.
 
 ## License
 

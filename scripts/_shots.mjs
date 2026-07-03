@@ -30,7 +30,7 @@ try {
       [settings],
     );
     const page = await context.newPage();
-    await page.goto('http://127.0.0.1:4173/spider-solitaire/', { waitUntil: 'networkidle' });
+    await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(2400);
     if (suits) {
       await page.evaluate((n) => window.__baize.controller.newGame(n, 424242), suits);

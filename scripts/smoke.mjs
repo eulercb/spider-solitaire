@@ -1,12 +1,13 @@
-// End-to-end smoke test: builds are served by `vite preview` under the real
-// GitHub Pages subpath; a phone-sized Chromium plays the game via the same
-// debug hooks the cascade was tuned with. Usage: npm run build && npm run smoke
+// End-to-end smoke test: builds are served by `vite preview` at the site
+// root (the custom-domain base); a phone-sized Chromium plays the game via
+// the same debug hooks the cascade was tuned with.
+// Usage: npm run build && npm run smoke
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 
 const PORT = 4173;
-const BASE = `http://127.0.0.1:${PORT}/spider-solitaire/`;
+const BASE = `http://127.0.0.1:${PORT}/`;
 const SHOTS = process.env.SHOT_DIR ?? 'screenshots';
 
 const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], {

@@ -1,10 +1,13 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// Served from https://<user>.github.io/spider-solitaire/ — a subpath.
-// Everything (assets, manifest scope, SW scope) must live under this base.
+// Served from the root of the custom domain https://spider.zen.dev.br/.
+// A custom domain serves the site from `/`, not the `/<repo>/` project
+// subpath, so the base is root. `public/CNAME` pins the domain on every
+// deploy. (For a plain <user>.github.io/spider-solitaire/ deploy this would
+// need to be '/spider-solitaire/' instead.)
 export default defineConfig({
-  base: '/spider-solitaire/',
+  base: '/',
   build: {
     target: 'es2022',
     sourcemap: false,
